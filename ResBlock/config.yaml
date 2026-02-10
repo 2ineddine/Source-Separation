@@ -4,4 +4,4 @@ clue_encoder:
   input_dim: 80
   hidden_dim: 1024
   num_layers: 3
-  dropout: 0.1
+  dropout: 0.2
