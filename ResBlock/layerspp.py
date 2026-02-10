@@ -64,7 +64,7 @@ class AttnBlockpp(nn.Module):
 
   def __init__(self, channels, skip_rescale=False, init_scale=0.):
     super().__init__()
-    self.GroupNorm_0 = nn.GroupNorm(num_groups=min(channels // 4, 32), num_channels=channels,
+    self.GroupNorm_0 = nn.GroupNorm(num_groups=max(1, min(channels // 4, 32)), num_channels=channels,
                                   eps=1e-6)
     self.NIN_0 = NIN(channels, channels)
     self.NIN_1 = NIN(channels, channels)
@@ -170,13 +170,13 @@ class ResnetBlockDDPMpp(nn.Module):
                dropout=0.1, skip_rescale=False, init_scale=0.):
     super().__init__()
     out_ch = out_ch if out_ch else in_ch
-    self.GroupNorm_0 = nn.GroupNorm(num_groups=min(in_ch // 4, 32), num_channels=in_ch, eps=1e-6)
+    self.GroupNorm_0 = nn.GroupNorm(num_groups=max(1, min(in_ch // 4, 32)), num_channels=in_ch, eps=1e-6)
     self.Conv_0 = conv3x3(in_ch, out_ch)
     if temb_dim is not None:
       self.Dense_0 = nn.Linear(temb_dim, out_ch)
       self.Dense_0.weight.data = default_init()(self.Dense_0.weight.data.shape)
       nn.init.zeros_(self.Dense_0.bias)
-    self.GroupNorm_1 = nn.GroupNorm(num_groups=min(out_ch // 4, 32), num_channels=out_ch, eps=1e-6)
+    self.GroupNorm_1 = nn.GroupNorm(num_groups=max(1, min(out_ch // 4, 32)), num_channels=out_ch, eps=1e-6)
     self.Dropout_0 = nn.Dropout(dropout)
     self.Conv_1 = conv3x3(out_ch, out_ch, init_scale=init_scale)
     if in_ch != out_ch:
@@ -216,7 +216,7 @@ class ResnetBlockBigGANpp(nn.Module):
     super().__init__()
 
     out_ch = out_ch if out_ch else in_ch
-    self.GroupNorm_0 = nn.GroupNorm(num_groups=min(in_ch // 4, 32), num_channels=in_ch, eps=1e-6)
+    self.GroupNorm_0 = nn.GroupNorm(num_groups=max(1, min(in_ch // 4, 32)), num_channels=in_ch, eps=1e-6)
     self.up = up
     self.down = down
     self.fir = fir
@@ -228,7 +228,7 @@ class ResnetBlockBigGANpp(nn.Module):
       self.Dense_0.weight.data = default_init()(self.Dense_0.weight.shape)
       nn.init.zeros_(self.Dense_0.bias)
 
-    self.GroupNorm_1 = nn.GroupNorm(num_groups=min(out_ch // 4, 32), num_channels=out_ch, eps=1e-6)
+    self.GroupNorm_1 = nn.GroupNorm(num_groups=max(1, min(out_ch // 4, 32)), num_channels=out_ch, eps=1e-6)
     self.Dropout_0 = nn.Dropout(dropout)
     self.Conv_1 = conv3x3(out_ch, out_ch, init_scale=init_scale)
     if in_ch != out_ch or up or down:
@@ -277,27 +277,25 @@ class ResnetBlockBigGANpp(nn.Module):
 
 # test ResnetBlockBigGANpp
 if __name__ == "__main__":
-  # block = ResnetBlockBigGANpp(act=F.relu, in_ch=64, out_ch=128, temb_dim=256, up=True)
-  # x = torch.randn(2, 64, 16, 16)
-  # # get the number parameters 
+  block = ResnetBlockBigGANpp(act=F.relu, in_ch=2, out_ch=512, temb_dim=None, up=False)
+  x = torch.randn(2, 2, 16, 16)
   
-  # temb = torch.randn(2, 256)
-  # y = block(x, temb)
-  # print(f"Input: {x.shape} -> Output: {y.shape}")
+  y = block(x)
+  print(f"Input: {x.shape} -> Output: {y.shape}")
   
 
-  # Create a ResBlock
-  resblock = ResnetBlockBigGANpp(
-      act=nn.SiLU(),
-      in_ch=256,
-      out_ch=512,
-      temb_dim=512,
-      dropout=0.1
-  )
+  # # Create a ResBlock
+  # resblock = ResnetBlockBigGANpp(
+  #     act=nn.SiLU(),
+  #     in_ch=256,
+  #     out_ch=512,
+  #     temb_dim=512,
+  #     dropout=0.1
+  # )
 
-  # Count parameters
-  total_params = sum(p.numel() for p in resblock.parameters())
-  trainable_params = sum(p.numel() for p in resblock.parameters() if p.requires_grad)
+  # # Count parameters
+  # total_params = sum(p.numel() for p in resblock.parameters())
+  # trainable_params = sum(p.numel() for p in resblock.parameters() if p.requires_grad)
 
-  print(f"Total parameters: {total_params:,}")
-  print(f"Trainable parameters: {trainable_params:,}")
+  # print(f"Total parameters: {total_params:,}")
+  # print(f"Trainable parameters: {trainable_params:,}")

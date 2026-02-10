@@ -46,6 +46,10 @@ if __name__ == "__main__":
     x = torch.randn(1, 156, 80)  
     y = encoder(x)
     print(f"Input: {x.shape} -> Output: {y.shape}")
+    y = y.
+    print(f"Input: {x.shape} -> Output: {y.shape}")
+
+    
     # the number of parameters 
     
     print (f"Number of parameters: {sum(p.numel() for p in encoder.parameters())}")
