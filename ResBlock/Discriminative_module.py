@@ -16,9 +16,9 @@ class DiscriminativeModule(nn.Module):
         
         self.clue_encoder = ClueEncoder()
         # TSEEncoder expects embedding dimension matching ClueEncoder output (1024)
-        self.Tse_encoder = TSEEncoder(e=1024)
-        
-        self.Unet = UNet()
+        self.Tse_encoder = TSEEncoder(emb_dim=768)
+        # UNet receives (B, 512, 256) from TSEEncoder, so in_channels must be 512
+        self.Unet = UNet(in_channels=512)
 
     def forward(self, *, y, clue):
         e = self.clue_encoder(x=clue)
@@ -32,7 +32,7 @@ class DiscriminativeModule(nn.Module):
 if __name__ == "__main__":
     model = DiscriminativeModule()
     y = torch.randn(2, 2, 512, 256)  
-    clue = torch.randn(2, 156, 128)  
+    clue = torch.randn(2, 156, 512)  
     out1,out2 = model(y=y, clue=clue)
     out1,out2 = model(y=y, clue=clue)
     print(f"Input y: {y.shape}, clue: {clue.shape} -> Output1: {out1.shape}, Output2: {out2.shape}")
