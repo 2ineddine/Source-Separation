@@ -39,9 +39,9 @@ class Block1D(torch.nn.Module):
             nn.Mish(),
         )
 
-    def forward(self, x, mask):
-        output = self.block(x * mask)
-        return output * mask
+    def forward(self, x):
+        output = self.block(x)
+        return output 
 
 
 class ResnetBlock1D(torch.nn.Module):
@@ -54,11 +54,11 @@ class ResnetBlock1D(torch.nn.Module):
 
         self.res_conv = torch.nn.Conv1d(dim, dim_out, 1)
 
-    def forward(self, x, mask, time_emb):
-        h = self.block1(x, mask)
+    def forward(self, x, time_emb):
+        h = self.block1(x)
         h += self.mlp(time_emb).unsqueeze(-1)
-        h = self.block2(h, mask)
-        output = h + self.res_conv(x * mask)
+        h = self.block2(h)
+        output = h + self.res_conv(x)
         return output
 
 
@@ -205,8 +205,8 @@ class ConformerWrapper(ConformerBlock):
 class Unet(nn.Module):
     def __init__(
         self,
-        in_channels,
-        out_channels,
+        in_channels=2048,
+        out_channels=1024,
         channels=(256, 256),
         dropout=0.05,
         attention_head_dim=64,
@@ -365,7 +365,7 @@ class Unet(nn.Module):
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
 
-    def forward(self, x, mask, mu, t, spks=None, cond=None):
+    def forward(self,*, x, mu, t, spks=None, cond=None):
         """Forward pass of the UNet1DConditional model.
 
         Args:
@@ -382,81 +382,68 @@ class Unet(nn.Module):
         Returns:
             _type_: _description_
         """
-
+  
         t = self.time_embeddings(t)
         t = self.time_mlp(t)
 
         x = pack([x, mu], "b * t")[0]
 
-        if spks is not None:
-            spks = repeat(spks, "b c -> b c t", t=x.shape[-1])
-            x = pack([x, spks], "b * t")[0]
+
 
         hiddens = []
-        masks = [mask]
         for resnet, transformer_blocks, downsample in self.down_blocks:
-            mask_down = masks[-1]
-            x = resnet(x, mask_down, t)
+            x = resnet(x, t)
             x = rearrange(x, "b c t -> b t c")
-            mask_down = rearrange(mask_down, "b 1 t -> b t")
             for transformer_block in transformer_blocks:
                 x = transformer_block(
                     hidden_states=x,
-                    attention_mask=mask_down,
+                    attention_mask=None,
                     timestep=t,
                 )
             x = rearrange(x, "b t c -> b c t")
-            mask_down = rearrange(mask_down, "b t -> b 1 t")
             hiddens.append(x)  # Save hidden states for skip connections
-            x = downsample(x * mask_down)
-            masks.append(mask_down[:, :, ::2])
+            x = downsample(x )
 
-        masks = masks[:-1]
-        mask_mid = masks[-1]
 
         for resnet, transformer_blocks in self.mid_blocks:
-            x = resnet(x, mask_mid, t)
+            x = resnet(x, t)
             x = rearrange(x, "b c t -> b t c")
-            mask_mid = rearrange(mask_mid, "b 1 t -> b t")
             for transformer_block in transformer_blocks:
                 x = transformer_block(
                     hidden_states=x,
-                    attention_mask=mask_mid,
+                    attention_mask=None,
                     timestep=t,
                 )
             x = rearrange(x, "b t c -> b c t")
-            mask_mid = rearrange(mask_mid, "b t -> b 1 t")
 
         for resnet, transformer_blocks, upsample in self.up_blocks:
-            mask_up = masks.pop()
-            x = resnet(pack([x, hiddens.pop()], "b * t")[0], mask_up, t)
+            x = resnet(pack([x, hiddens.pop()], "b * t")[0], t)
             x = rearrange(x, "b c t -> b t c")
-            mask_up = rearrange(mask_up, "b 1 t -> b t")
             for transformer_block in transformer_blocks:
                 x = transformer_block(
                     hidden_states=x,
-                    attention_mask=mask_up,
+                    attention_mask=None,
                     timestep=t,
                 )
             x = rearrange(x, "b t c -> b c t")
-            mask_up = rearrange(mask_up, "b t -> b 1 t")
-            x = upsample(x * mask_up)
+            x = upsample(x )
 
-        x = self.final_block(x, mask_up)
-        output = self.final_proj(x * mask_up)
+        x = self.final_block(x)
+        output = self.final_proj(x)
 
-        return output * mask
+        return output 
     
     
     
 #test the Unet  
 
 if __name__ == "__main__":
-    model = Unet(in_channels=1024, out_channels=64)
-    x = torch.randn(2, 512, 256)  
-    mask = torch.ones(2, 1, 256)  
-    mu = torch.randn(2, 512, 256)  
+    model = Unet(in_channels=2048, out_channels=1024)
+    x = torch.randn(2, 1024, 256)  
+    mu = torch.randn(2, 1024, 256)  
     t = torch.randint(0, 1000, (2,))  
-    output = model(x=x, mask=mask, mu=mu, t=t)
+    output = model(x=x, mu=mu, t=t)
     print(f"Input: {x.shape} -> Output: {output.shape}")
     print (sum(p.numel() for p in model.parameters()if p.requires_grad))
+    
+    print (t.shape)

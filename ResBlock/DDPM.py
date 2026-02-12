@@ -4,7 +4,8 @@ import torch.nn as nn
 from UnetSDE import Unet
 from  Discriminative_module import DiscriminativeModule
 
-
+import torch
+import torchaudio
 
 
 
@@ -29,7 +30,7 @@ class DDPM (nn.Module):
         
         
         return xt,z
-        
+    
     def compute_sigma(self, t):
         
         log_ratio = torch.log(torch.tensor(self.sigma1 / self.sigma0))
@@ -38,16 +39,40 @@ class DDPM (nn.Module):
                     log_ratio)
         denominator = self.stifness + log_ratio
         return torch.sqrt(numerator / denominator)
+    
+    def get_audio(self, x_hat):
+        B, C, F, T = x_hat.shape
+        pad = torch.zeros(B, C, 1, T, device=x_hat.device)
+        x_hat_padded = torch.cat([x_hat, pad], dim=2) 
+        stft = torch.complex(x_hat_padded[:,0],x_hat_padded[:,1])
+        waveform = torch.istft(
+        stft,
+        n_fft=1024,
+        hop_length=512,
+        win_length=1024,
+        window=torch.hann_window(1024).to(x_hat.device),
+        
 
+        )
+        return waveform
+    
+    def get_stft(self, x_hat):
+        magnitude = torch.sqrt(x_hat[:, 0]**2 + x_hat[:, 1]**2)
+        return magnitude
+    
+    
 
-    def forward(self,*,x,y,t,clue):
+    def forward(self,*,x,x_audio,y,t,clue):
         
         x_hat = self.discriminative_module(y=y, clue=clue)
-        SNR_loss = -10*torch.log10(torch.mean(x**2) / torch.mean((x-x_hat)**2))
+
+        waveform = self.get_audio(x_hat)
+        print ("wavefrom  =  ",waveform.shape)
+        
+        SNR_loss = -10*torch.log10(torch.mean(x_audio**2) / torch.mean((x_audio-waveform)**2))
     
-        x_hat = torch.mean(x_hat, dim=1, keepdim=True).squeeze(1)
-        x = torch.mean(x, dim=1, keepdim=True).squeeze(1)  
-        y = torch.mean(y, dim=1, keepdim=True).squeeze(1)
+        x_hat = self.get_stft(x_hat)
+
         print ("x_hat shape:", x_hat.shape, "x shape:", x.shape, "y shape:", y.shape)
 
         x_noised,z = self.add_noise(x=x,y=y,t=t)        
@@ -74,47 +99,45 @@ class DDPM (nn.Module):
 
     
     @torch.no_grad()
-    def synthese(self,*,clue,y, n_steps):
+    def synthese(self, *, clue, y, n_steps):
         
-              
-        x_hat = self.discriminative_module(y=y, clue=clue) 
- 
-        
+        x_hat = self.discriminative_module(y=y, clue=clue)  # [B, 512, T]
+        x_hat = self.get_stft(x_hat)
+        print("x_hat shape  = ",x_hat.shape)
 
-
-        dt  = 1/n_steps
+        dt = 1/n_steps
         J = []
+        device = y.device
+        batch_size = y.shape[0]  
         
-        for j in range(10): # inference repetition
-            
-            sigma_T = self.compute_sigma(torch.tensor(1.0))  
+        sigma1_tensor = torch.tensor(self.sigma1, device=device)
+        sigma0_tensor = torch.tensor(self.sigma0, device=device)
+        log_ratio = torch.log(sigma1_tensor / sigma0_tensor)
+        
+        for j in range(10):  
+            sigma_T = self.compute_sigma(torch.tensor(1.0, device=device))
             xt = y + sigma_T * torch.randn_like(y)  
-
+            
             for step in range(n_steps):
-                t = 1 - step * dt
+                t_val = 1 - step * dt
                 
-                g = (self.sigma0 * ((self.sigma1 / self.sigma0))**t) * \
-                    torch.sqrt(2*torch.log(self.sigma1 / self.sigma0))
-        
+                t = torch.full((batch_size,), t_val, device=device)  
+                
+                g = (self.sigma0 * ((sigma1_tensor / sigma0_tensor)**t_val) * 
+                    torch.sqrt(2 * log_ratio))
+                g = g.view(1, 1, 1)  
+                
                 diffusion = g * torch.randn_like(xt)
                 
-                score = self.unet(x=xt, mask=None, mu=x_hat, t=t)
+                score = self.unet(x=xt, mu=x_hat, t=t)  
                 
-                f  = -self.stifness * ( xt - y)
-
-                drift = -f + g**2 * score
-                
-                xt +=drift *dt + diffusion * torch.sqrt(dt)
-                
-                
-                
-               
+                f = -self.stifness * (xt - y)
+                drift =-f + g**2 * score
+                xt += drift * dt + diffusion * dt**0.5
                 
             J.append(xt)
-            
+        
         return torch.stack(J, dim=0).mean(dim=0)
-    
-    
     
 
 
@@ -122,10 +145,18 @@ class DDPM (nn.Module):
 #test of the architecture
 if __name__ == "__main__":
     model = DDPM()
-    y = torch.randn(2, 2, 512, 256)  
-    clue = torch.randn(2, 128, 512)  
-    t = torch.randn(2).unsqueeze(-1).unsqueeze(-1)
+    # x_audio = torch.randn(2,130560)
+    # y = torch.randn(2, 512, 256)  
+    # clue = torch.randn(2, 128, 512)  
+    # t = torch.randn(2).unsqueeze(-1).unsqueeze(-1)
     
-    out = model(y=y, clue=clue, x=torch.randn(2,2, 512, 256), t=t)
-    print(f"Input y: {y.shape}, clue: {clue.shape} -> Output: {out.shape}")
-    print(f"Number of parameters: {sum(p.numel() for p in model.parameters())}")
+    # out = model(y=y, clue=clue, x=torch.randn(2, 512, 256), x_audio=x_audio, t=t)
+    # print(f"Input y: {y.shape}, clue: {clue.shape}, x_audio: {x_audio.shape} -> Output: {out.shape}")
+    # print(f"Number of parameters: {sum(p.numel() for p in model.parameters())}")
+    
+    # synthesis test 
+    clue = torch.randn(1, 128, 512)
+    y = torch.randn(1, 512, 256)
+    n_steps = 10
+    synthesized = model.synthese(clue=clue, y=y, n_steps=n_steps)
+    print(f"Synthesized output shape: {synthesized.shape}")
